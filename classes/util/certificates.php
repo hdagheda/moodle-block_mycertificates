@@ -64,16 +64,74 @@ class certificates {
      * @throws \moodle_exception
      */
     public function get_all_certificates() {
+        $corecertificate = $this->get_from_corecertificate();
         $simplecertificate = $this->get_from_simplecertificate();
         $customcert = $this->get_from_customcert();
 
-        $allcerts = array_merge($simplecertificate, $customcert);
+        $allcerts = array_merge($corecertificate, $simplecertificate, $customcert);
 
         if (!empty($allcerts)) {
             return array_values($this->group_certificates_by_course($allcerts));
         }
 
         return [];
+    }
+
+    /**
+     * Get all issued certificates from core certificate module.
+     *
+     * @return array
+     *
+     * @throws \dml_exception
+     * @throws \moodle_exception
+     */
+    public function get_from_corecertificate() {
+        global $DB;
+
+            $sql = "SELECT
+                        cm.id,
+                        ci.code,
+                        ct.name,
+                        c.id as courseid,
+                        c.fullname,
+                        c.shortname,
+                        'certificate' as module
+                    FROM {certificate_issues} ci
+                    INNER JOIN {certificate} ct ON ct.id = ci.certificateid
+                    INNER JOIN {course} c ON ct.course = c.id AND c.visible = 1
+                    INNER JOIN {course_modules} cm ON c.id = cm.course AND ct.id = cm.instance AND cm.module = 23
+                    WHERE ci.userid = :userid";
+        $params = ['userid' => $this->user->id];
+
+        if ($this->courseid) {
+            $sql .= ' AND c.id = :courseid';
+            $params['courseid'] = $this->courseid;
+        }
+
+        $sql .= ' ORDER BY c.fullname, ci.timecreated';
+
+        $certificates = $DB->get_records_sql($sql, $params);
+
+        if (empty($certificates)) {
+            return [];
+        }
+
+        $fs = get_file_storage();
+
+        $returndata = [];
+        foreach ($certificates as $certificate) {
+
+            $url = new \moodle_url('/mod/certificate/view.php', [
+                'id' => $certificate->id,
+                'action' => 'get'
+            ]);
+
+            $certificate->downloadurl = $url->out(false);
+
+            $returndata[] = $certificate;
+        }
+
+        return $returndata;
     }
 
     /**
